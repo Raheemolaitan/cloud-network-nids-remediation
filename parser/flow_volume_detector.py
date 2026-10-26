@@ -24,7 +24,7 @@ DEFAULT_EVE_LOG = "/var/log/suricata/eve.json"
 BYTE_THRESHOLD = 100 * 1024
 
 # Our internal laboratory network.
-HOME_NET = ipaddress.ip_network("10.0.3.0/24")
+HOME_NET = [ipaddress.ip_network("10.0.3.0/24"), ipaddress.ip_network("10.106.155.63/32")]
 
 
 def validate_ip(value):
@@ -71,8 +71,8 @@ def analyse_flow(event):
     # Only investigate traffic originating inside HOME_NET
     # and travelling to an address outside HOME_NET.
     is_outbound = (
-        source_ip in HOME_NET
-        and destination_ip not in HOME_NET
+        any(source_ip in network for network in HOME_NET)
+        and not any(destination_ip in network for network in HOME_NET)
     )
 
     if not is_outbound:
@@ -112,6 +112,7 @@ def process_log(log_path):
     total_records = 0
     flow_records = 0
     outbound_flows = []
+    seen_flow_ids = set()
     skipped_records = 0
 
     with path.open("r", encoding="utf-8") as log_file:
@@ -142,6 +143,13 @@ def process_log(log_path):
                 continue
 
             flow_records += 1
+
+            flow_id = event.get("flow_id")
+
+            if flow_id is not None:
+                if flow_id in seen_flow_ids:
+                    continue
+                seen_flow_ids.add(flow_id)
 
             result = analyse_flow(event)
 
