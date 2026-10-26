@@ -1,0 +1,461 @@
+# Cloud Network Security: Suricata NIDS, VPC Flow Log-Inspired Inspection & NACL Threat Containment
+
+Project Overview
+
+This project implements a laboratory-based cloud network security monitoring and remediation system using Suricata, Python, AWS-compatible services through LocalStack, and Network Access Control Lists (NACLs).
+
+The solution demonstrates how network activity can be monitored, suspicious traffic identified, security events analysed, and controlled network containment actions prepared through an AWS Lambda-compatible remediation function.
+
+The current implementation analyses Suricata EVE JSON alerts and flow records. It does not yet ingest native AWS VPC Flow Logs. Native VPC Flow Log integration is identified as a future enhancement.
+
+The project was developed as part of a Cloud Network Security assignment at Bincom Dev Center.
+
+Important: This is a controlled virtual-machine and LocalStack laboratory implementation. It demonstrates detection, alert processing, remediation logic and API-level NACL configuration. It is not a fully deployed production AWS security architecture, and actual AWS packet-level enforcement has not been demonstrated.
+
+Project Objectives
+
+The primary objectives were to:
+
+- Monitor network traffic using Suricata Network Intrusion Detection System (NIDS).
+- Analyse Suricata EVE JSON events and flow records.
+- Detect suspicious network activity, including SYN scans, ICMP floods and suspicious outbound connections.
+- Identify unusually high-volume outbound TCP transfers using custom Python logic.
+- Develop a Python-based alert parser.
+- Implement a Lambda-compatible NACL remediation function using Boto3.
+- Protect critical infrastructure IP addresses from accidental containment.
+- Validate NACL rule creation through LocalStack's EC2 API.
+- Measure the execution time of controlled NACL remediation operations.
+
+Architecture and Workflow
+
+The project uses two virtual machines for network traffic generation and monitoring, with LocalStack providing an AWS-compatible API environment for remediation testing.
+
+High-level workflow
+
+          Kali Linux VM
+       Traffic Generation
+                |
+                |
+                v
+       Ubuntu Linux VM
+                |
+                v
+          Suricata NIDS
+                |
+                v
+          EVE JSON Logs
+                |
+                v
+       Python Alert Parser
+                |
+                v
+       Security Validation
+                |
+                v
+      Controlled Lambda Remediation 
+	       Test
+                |
+                v
+       LocalStack EC2 API
+                |
+                v
+        Network DENY Rule
+    (when explicitly invoked)
+                |
+                v
+       Independent Verification
+
+Main components
+
+Component| Responsibility
+Kali Linux| Controlled network scanning and traffic generation
+Ubuntu Linux| Network monitoring and security processing
+Suricata| Network intrusion detection and flow logging
+EVE JSON| Stores structured detection and flow events
+Python parser| Extracts and classifies security alerts
+Flow-volume detector| Identifies unusually large outbound TCP transfers
+AWS Lambda-compatible function| Validates alerts and performs controlled remediation
+Boto3| Communicates with AWS-compatible EC2 APIs
+LocalStack| Simulates selected AWS services locally
+Network ACL| Represents the subnet-level traffic filtering policy
+
+Deployment distinction: Suricata runs natively on the Ubuntu virtual machine as a system service. LocalStack runs in Docker using Docker Compose.
+
+Technologies Used
+
+- Ubuntu 24.04.5 LTS
+- Kali Linux
+- Suricata 7.0.3
+- Python 3
+- Boto3
+- AWS Lambda-compatible handler
+- AWS EC2 Network ACL API
+- LocalStack 4.8.1
+- Docker and Docker Compose
+- Nmap
+- Netcat
+- Git and GitHub
+
+Detection Capabilities
+
+1. SYN Scan Detection
+
+A custom Suricata rule detects repeated TCP SYN packets from the same source address.
+
+Detection threshold:
+
+- At least 20 SYN packets.
+- Within 10 seconds.
+- Tracked by source IP.
+
+A controlled Nmap SYN scan was conducted against the Ubuntu test machine.
+
+2. ICMP Flood Detection
+
+A custom Suricata rule identifies repeated ICMP echo requests.
+
+Detection threshold:
+
+- At least 50 ICMP echo requests.
+- Within 10 seconds.
+- Tracked by source IP.
+
+A controlled ping test generated 60 ICMP echo requests.
+
+3. Suspicious Outbound Connection Detection
+
+A custom Suricata rule monitors outbound TCP connection attempts to destination port 4444 outside the configured HOME_NET.
+
+The rule generated alerts during a controlled connection test.
+
+This is a suspicious-port heuristic, not proof of command-and-control communication.
+
+4. High-Volume Outbound Transfer Detection
+
+A custom Python script analyses Suricata EVE JSON flow records to identify unusually large outbound TCP transfers.
+
+Configured threshold:
+
+102,400 bytes (100 KiB).
+
+The controlled Ubuntu-to-Kali transfer produced:
+
+Measurement| Result
+Bytes sent| 274,560
+Bytes received| 4,166
+Detection threshold| 102,400 bytes
+High-volume flows detected| 1
+
+The transfer was between laboratory virtual machines. It was not an actual internet data-exfiltration incident.
+
+Alert Processing and Remediation
+
+Python Alert Parser
+
+"parser/suricata_flow_parser.py"
+
+The parser:
+
+- Reads Suricata EVE JSON alert records.
+- Validates source and destination IP addresses.
+- Extracts source and destination ports.
+- Extracts protocol, interface and signature information.
+- Records alert severity and action.
+- Classifies traffic direction using configured HOME_NET networks.
+- Identifies alerts requiring security review.
+
+The parser does not independently execute containment actions.
+
+Flow Volume Detector
+
+"parser/flow_volume_detector.py"
+
+The flow-volume detector:
+
+- Reads Suricata flow records.
+- Analyses TCP traffic.
+- Validates source and destination addresses.
+- Determines direction using configured laboratory network boundaries.
+- Compares recorded byte counts against the 100 KiB threshold.
+- Identifies high-volume flows for investigation.
+
+The detector does not block traffic or automatically invoke the remediation function.
+
+NACL Remediation Function
+
+"lambda/remediate_nacl_isolation.py"
+
+The Python remediation function uses Boto3 to communicate with the EC2 Network ACL API.
+
+Its responsibilities include:
+
+- Validating alert direction and IP addresses.
+- Checking alert severity.
+- Rejecting protected IP addresses.
+- Checking the approved Network ACL.
+- Preventing modification of the default NACL.
+- Verifying the dedicated subnet association.
+- Preventing duplicate rules.
+- Selecting an available rule number.
+- Creating an IPv4 or IPv6 DENY rule where eligible.
+
+Automatic containment is disabled by default.
+
+Controlled tests explicitly invoked the remediation function to validate its behaviour.
+
+Security Safeguards
+
+Safety was prioritised throughout the implementation.
+
+Safeguard| Purpose
+Automatic containment disabled| Prevents uncontrolled network changes
+Protected IP list| Prevents blocking critical lab infrastructure
+IP address validation| Rejects invalid addresses
+Dedicated test NACL| Separates testing from shared/default NACLs
+Default NACL protection| Prevents accidental modification of the default NACL
+Subnet association validation| Ensures the approved test subnet is used
+Duplicate rule prevention| Avoids repeated entries for the same destination
+One-rule execution limit| Restricts the number of changes per execution
+DRY_RUN mode| Allows validation without modifying the NACL
+
+Protected addresses include the Kali test machine, Ubuntu monitoring machine and laboratory gateway.
+
+Testing and Results
+
+Test A: Network Reconnaissance Detection
+
+A controlled Nmap SYN scan was executed against the Ubuntu virtual machine.
+
+Result:
+
+- Target host identified.
+- TCP ports scanned.
+- Suricata generated SYN scan alerts.
+- Python processing grouped repeated alerts.
+- Protected source IP validation prevented inappropriate containment.
+
+ICMP Detection Test
+
+A controlled test generated 60 ICMP echo requests.
+
+Suricata generated ICMP flood alerts according to the configured detection threshold.
+
+The alerts were recorded for analysis. No packet blocking was performed.
+
+Test B: High-Volume Outbound Transfer
+
+A controlled TCP transfer was performed from Ubuntu to Kali using Netcat.
+
+The Suricata flow record exceeded the configured 100 KiB threshold.
+
+The Python detector successfully identified one high-volume flow.
+
+Outbound Threat Detection and NACL Remediation
+
+A controlled outbound connection attempt to TCP port 4444 generated a Suricata alert.
+
+The parser correctly classified the alert as outbound.
+
+A synthetic alert was submitted to the Lambda handler, which returned DRY_RUN and selected the correct destination IP.
+
+The remediation function was separately invoked to create an outbound DENY rule through LocalStack.
+
+Independent API verification confirmed that the rule was created.
+
+Remediation Latency Test
+
+Four controlled remediation measurements were recorded.
+
+Measurement| Execution time
+Original| 156.329 ms
+Repeat 1| 50.374 ms
+Repeat 2| 82.038 ms
+Repeat 3| 106.904 ms
+Average| 98.911 ms
+Median| 94.471 ms
+
+These measurements cover the complete remediation function execution, including NACL lookup, validation and rule creation.
+
+They are LocalStack API-level measurements, not production AWS performance benchmarks or end-to-end detection-to-containment measurements.
+
+Detailed evidence is available in the "docs/" directory.
+
+Project Structure
+
+cloud-network-nids-remediation/
+│
+├── docs/
+│   ├── high-volume-outbound-test.md
+│   ├── outbound-remediation-test.md
+│   └── remediation-latency-test.md
+│
+├── lambda/
+│   └── remediate_nacl_isolation.py
+│
+├── parser/
+│   ├── suricata_flow_parser.py
+│   └── flow_volume_detector.py
+│
+├── policies/
+│   ├── protected_ips.json
+│   └── remediation_policy.json
+│
+├── tests/
+│   ├── synthetic_external_flow.json
+│   └── test_parser_lambda_integration.py
+│
+├── docker-compose.yml
+├── .gitignore
+└── README.md
+
+Runtime logs, local backups and generated test data are excluded from the published repository where appropriate.
+
+Installation and Laboratory Setup
+
+Prerequisites
+
+- Ubuntu Linux virtual machine.
+- Python 3.
+- Git.
+- Docker and Docker Compose.
+- Suricata.
+- LocalStack.
+- Boto3.
+- A separate Kali Linux virtual machine or another controlled traffic-generation environment.
+
+1. Clone the repository
+
+```bash
+
+git clone https://github.com/Raheemolaitan/cloud-network-nids-remediation.git
+
+cd cloud-network-nids-remediation
+
+```
+
+2. Create a Python virtual environment
+
+```bash
+
+python3 -m venv .venv
+
+source .venv/bin/activate
+
+```
+
+3. Install Python dependencies
+
+Install Boto3:
+
+```bash
+
+pip install boto3
+
+```
+
+4. Start LocalStack
+
+```bash
+
+docker compose up -d
+
+Check the container:
+
+docker ps
+
+```
+
+5. Configure LocalStack credentials
+
+For a local test environment, configure the AWS CLI with dummy credentials and the LocalStack endpoint.
+
+```bash
+
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
+export AWS_REGION=us-east-1
+export AWS_ENDPOINT_URL=http://localhost:4566
+
+```
+
+These credentials are for local simulation only. Do not use them as real AWS credentials.
+
+6. Configure Suricata
+
+Install Suricata on Ubuntu and configure it to monitor the intended laboratory interfaces.
+
+Review the local rules and HOME_NET configuration before starting detection.
+
+Validate the configuration:
+
+```bash
+
+sudo suricata -T -c /etc/suricata/suricata.yaml
+
+```
+
+Check the service:
+
+```bash
+
+sudo systemctl status suricata
+
+```
+
+Important: Interface names, IP addresses, subnet IDs, NACL IDs and policy configuration must be adjusted to match the user's own laboratory environment. The repository's test configuration is not a universal deployment template.
+
+Important Technical Limitations
+
+This project intentionally distinguishes laboratory validation from production cloud enforcement.
+
+1. Flow Logs and packet inspection: Flow records provide traffic metadata, not full packet payloads. They may also be delayed. Suricata provides the direct network detection capability in this laboratory.
+
+2. LocalStack simulation: LocalStack validates AWS-compatible API operations. Successful NACL API calls do not prove real AWS packet filtering.
+
+3. Automatic event-driven integration: The parser and Lambda-compatible handler were tested in a controlled integration workflow. A fully deployed event-driven AWS pipeline was not demonstrated.
+
+4. Automatic containment: Automatic containment remains disabled. No uncontrolled live remediation was performed.
+
+5. Flow deduplication: The flow-volume detector uses flow IDs to avoid duplicate processing. Its current first-record deduplication approach may ignore later records containing higher cumulative byte counts.
+
+6. Network direction: Outbound classification depends on configured HOME_NET and laboratory network boundaries. These settings must be aligned with the actual deployment.
+
+7. Detection heuristics: Suspicious ports, SYN thresholds, ICMP thresholds and high-volume transfer thresholds are indicators for investigation, not automatic proof of malicious activity.
+
+8. Production readiness: Real AWS validation would require deployed networking, IAM permissions, event integration, monitoring, controlled packet-level testing and operational safeguards.
+
+Future Improvements
+
+Potential improvements include:
+
+- Deploying the architecture in a real AWS test VPC.
+- Integrating actual AWS VPC Flow Logs.
+- Implementing a fully event-driven alert-to-Lambda workflow.
+- Improving flow aggregation and cumulative byte-count handling.
+- Making HOME_NET and NACL configuration environment-driven.
+- Adding automated unit and regression tests.
+- Integrating CloudWatch monitoring and alerting.
+- Measuring end-to-end detection-to-remediation latency.
+- Validating packet-level NACL enforcement in an isolated AWS test environment.
+- Introducing approval workflows for higher-risk containment actions.
+
+Conclusion
+
+This project demonstrates a practical laboratory implementation of network intrusion detection, flow analysis, security alert processing and controlled cloud network remediation.
+
+It combines Suricata, Python, Boto3 and LocalStack to demonstrate how suspicious network activity can be identified, analysed and translated into validated NACL remediation operations.
+
+The project also emphasises safe testing practices, protected infrastructure, controlled remediation and transparent reporting of simulation limitations.
+
+The result is a foundation for further development into a production-grade cloud network security monitoring and automated response architecture.
+
+---
+
+Project: Cloud Network Security — Automated VPC Flow Log Inspection, Suricata NIDS and Event-Driven NACL Threat Containment
+
+Repository: https://github.com/Raheemolaitan/cloud-network-nids-remediation
+
+Author: Raheem Olaitan Abdulrasheed
+
+Training: Bincom Dev Center
