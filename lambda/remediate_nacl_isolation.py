@@ -120,7 +120,19 @@ def check_alert_eligibility(alert, policy, protected_ips):
     if not isinstance(alert, dict):
         raise ValueError("Alert must be a JSON object.")
 
-    source_ip = validate_ip_address(alert.get("source_ip"))
+    direction = alert.get("direction", "inbound")
+
+    if direction not in ("inbound", "outbound"):
+        raise ValueError(
+            "Direction must be either inbound or outbound."
+        )
+
+    if direction == "inbound":
+        ip_value = alert.get("source_ip")
+    else:
+        ip_value = alert.get("destination_ip")
+
+    target_ip = validate_ip_address(ip_value)
 
     severity = alert.get("severity")
 
@@ -132,13 +144,12 @@ def check_alert_eligibility(alert, policy, protected_ips):
     if severity not in (1, 2, 3):
         raise ValueError("Unsupported alert severity.")
 
-    if is_protected_ip(source_ip, protected_ips):
+    if is_protected_ip(target_ip, protected_ips):
         raise ValueError(
-            f"Protected IP cannot be blocked: {source_ip}"
+            f"Protected IP cannot be blocked: {target_ip}"
         )
 
     severity_actions = policy.get("severity_actions", {})
-
     action = severity_actions.get(str(severity))
 
     if action != "eligible_for_containment":
@@ -155,7 +166,7 @@ def check_alert_eligibility(alert, policy, protected_ips):
             "Alert severity does not meet containment threshold."
         )
 
-    return source_ip, severity
+    return target_ip, direction, severity
 
 
 # ---------------------------------------------------------
@@ -177,7 +188,7 @@ def create_ec2_client():
 # ---------------------------------------------------------
 
 def find_available_rule_number(
-    ec2_client,
+            ec2_client,
     nacl_id,
     policy,
     egress=False
@@ -232,12 +243,13 @@ def find_available_rule_number(
 # ---------------------------------------------------------
 
 def create_deny_rule(
-    ec2_client,
+            ec2_client,
     nacl_id,
     malicious_ip,
-    policy
+    policy,
+    direction="inbound"
 ):
-    """Insert a safe inbound DENY rule into the dedicated test NACL."""
+    """Insert a safe inbound or outbound DENY rule."""
 
     expected_nacl_id = DEFAULT_NACL_ID
 
@@ -245,6 +257,13 @@ def create_deny_rule(
         raise ValueError(
             "Refusing to modify an NACL other than the approved test NACL."
         )
+
+    if direction not in ("inbound", "outbound"):
+        raise ValueError(
+            "Direction must be either inbound or outbound."
+        )
+
+    egress = direction == "outbound"
 
     limits = policy.get("containment_limits", {})
 
@@ -282,7 +301,6 @@ def create_deny_rule(
             "Refusing to modify a default Network ACL."
         )
 
-    # Confirm that this NACL is attached to our dedicated test subnet.
     associations = nacl.get("Associations", [])
 
     expected_subnet_id = "subnet-00756e574718220ef"
@@ -297,8 +315,7 @@ def create_deny_rule(
 
     entries = nacl.get("Entries", [])
 
-    # Reject an existing exact-IP rule in the inbound direction,
-    # whether it is ALLOW or DENY.
+    # Reject an existing exact-IP rule in the requested direction.
     for entry in entries:
 
         if malicious_ip.version == 4:
@@ -312,16 +329,16 @@ def create_deny_rule(
                 == cidr_parameter.get("Ipv6CidrBlock")
             )
 
-        if same_ip and entry.get("Egress") is False:
+        if same_ip and entry.get("Egress") is egress:
             raise ValueError(
-                "An inbound rule already exists for this IP address."
+                f"A {direction} rule already exists for this IP address."
             )
 
     rule_number = find_available_rule_number(
-        ec2_client,
+            ec2_client,
         nacl_id,
         policy,
-        egress=False
+        egress=egress
     )
 
     request = {
@@ -329,7 +346,7 @@ def create_deny_rule(
         "RuleNumber": rule_number,
         "Protocol": "-1",
         "RuleAction": "deny",
-        "Egress": False,
+        "Egress": egress,
         **cidr_parameter
     }
 
@@ -339,11 +356,12 @@ def create_deny_rule(
         "network_acl_id": nacl_id,
         "subnet_id": expected_subnet_id,
         "rule_number": rule_number,
-        "direction": "inbound",
+        "direction": direction,
         "action": "deny",
         "blocked_ip": str(malicious_ip),
         "protocol": "all"
     }
+
 
 
 # ---------------------------------------------------------
@@ -367,11 +385,11 @@ def lambda_handler(event, context=None):
 
         policy, protected_ips = load_security_configuration()
 
-        source_ip, severity = check_alert_eligibility(
-            event,
-            policy,
-            protected_ips
-        )
+        target_ip, direction, severity = check_alert_eligibility(
+    event,
+    policy,
+    protected_ips
+)
 
         automatic_enabled = policy.get(
             "automatic_containment_enabled", False
@@ -387,7 +405,8 @@ def lambda_handler(event, context=None):
                     "Alert passed validation, but automatic "
                     "containment is disabled."
                 ),
-                "source_ip": str(source_ip),
+                "target_ip": str(target_ip),
+                "direction": direction,
                 "severity": severity,
                 "containment_requested": False,
                 "nacl_modified": False
@@ -399,8 +418,9 @@ def lambda_handler(event, context=None):
         result = create_deny_rule(
             ec2_client,
             DEFAULT_NACL_ID,
-            source_ip,
-            policy
+            target_ip,
+            policy,
+            direction=direction
         )
 
         logger.warning(
@@ -411,7 +431,7 @@ def lambda_handler(event, context=None):
         return {
             "statusCode": 200,
             "status": "CONTAINMENT_APPLIED",
-            "message": "Inbound DENY rule successfully created.",
+            "message": f"{direction.capitalize()} DENY rule successfully created.",
             "containment_requested": True,
             "nacl_modified": True,
             "result": result

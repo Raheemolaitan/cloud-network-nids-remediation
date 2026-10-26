@@ -22,6 +22,38 @@ DEFAULT_EVE_LOG = "/var/log/suricata/eve.json"
 # Alerts at these severity levels are flagged for review.
 REVIEW_SEVERITIES = {1, 2}
 
+# Protected networks used to classify traffic direction.
+HOME_NET = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+]
+
+
+def classify_direction(source_ip, destination_ip):
+    """Classify traffic relative to the protected HOME_NET."""
+
+    source = ipaddress.ip_address(source_ip)
+    destination = ipaddress.ip_address(destination_ip)
+
+    source_internal = any(
+        source.version == network.version and source in network
+        for network in HOME_NET
+    )
+
+    destination_internal = any(
+        destination.version == network.version and destination in network
+        for network in HOME_NET
+    )
+
+    if source_internal and not destination_internal:
+        return "outbound"
+
+    if destination_internal and not source_internal:
+        return "inbound"
+
+    return "internal"
+
 
 def validate_ip(value):
     """Validate an IPv4 or IPv6 address."""
@@ -62,6 +94,7 @@ def parse_alert(event):
         "source_port": event.get("src_port"),
         "destination_ip": destination_ip,
         "destination_port": event.get("dest_port"),
+        "direction": classify_direction(source_ip, destination_ip),
         "protocol": event.get("proto"),
         "interface": event.get("in_iface"),
         "signature_id": alert.get("signature_id"),

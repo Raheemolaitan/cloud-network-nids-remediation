@@ -1,0 +1,1 @@
+{"timestamp": "2026-10-26T15:55:00.000000+0100", "flow_id": 999999999, "in_iface": "enp0s8", "event_type": "flow", "src_ip": "10.0.3.20", "src_port": 45000, "dest_ip": "198.51.100.77", "dest_port": 443, "proto": "TCP", "flow": {"pkts_toserver": 1500, "pkts_toclient": 100, "bytes_toserver": 200000, "bytes_toclient": 5000, "state": "closed"}}
