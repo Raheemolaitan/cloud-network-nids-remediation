@@ -1,0 +1,22 @@
+{
+  "policy_name": "Cloud Network Threat Containment Policy",
+  "version": "1.0",
+  "automatic_containment_enabled": false,
+  "containment_severity_threshold": 1,
+  "severity_actions": {
+    "1": "eligible_for_containment",
+    "2": "investigation_required",
+    "3": "log_only"
+  },
+  "safety_controls": {
+    "reject_invalid_ip_addresses": true,
+    "check_protected_ip_list": true,
+    "require_ipv4_or_ipv6_validation": true,
+    "prevent_duplicate_block_rules": true
+  },
+  "containment_limits": {
+    "maximum_block_rules_per_execution": 1,
+    "minimum_nacl_rule_number": 100,
+    "maximum_nacl_rule_number": 200
+  }
+}
