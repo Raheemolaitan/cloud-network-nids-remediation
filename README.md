@@ -459,3 +459,64 @@ Repository: https://github.com/Raheemolaitan/cloud-network-nids-remediation
 Author: Raheem Olaitan Abdulrasheed
 
 Training: Bincom Dev Center
+
+## Network Flow Logger and Firewall Verdict Correlation
+
+The project includes a Python-based network flow logger and firewall verdict processing pipeline.
+
+### Implemented Components
+
+- `flow_logger/flow_logger.py`: Captures live IPv4 and IPv6 packets on the configured laboratory interface.
+- Records source and destination IP addresses, ports, protocol, packet size, timestamp and interface.
+- Aggregates directional network flows using a five-tuple and a 60-second inactivity timeout.
+- Saves packet records to `logs/network_flows.jsonl`.
+- Saves aggregated flow records to `logs/network_flows_aggregated.jsonl`.
+- `scripts/parse_firewall_verdicts.py`: Parses kernel firewall log entries into structured JSONL ACCEPT and REJECT records.
+- `scripts/correlate_firewall_verdicts.py`: Matches packet records against firewall verdict records using flow attributes and a five-second timestamp window.
+
+### Firewall Logging Validation
+
+Firewall logging was tested using a separate nftables table named `cloud_network_security`.
+
+The laboratory tests included:
+
+- ICMP traffic from Kali Linux (`10.0.3.15`) to Ubuntu (`10.0.3.20`).
+- Accepted incoming traffic recorded with an ACCEPT log prefix.
+- A temporary TCP rejection test targeting port `44445`.
+- Verification that the rejected TCP SYN packet was recorded with a REJECT log prefix.
+- Removal of the temporary rejection test chain after validation.
+
+The temporary rejection rule was used only for testing and was removed after the test.
+
+### Observed Correlation Results
+
+During the latest recorded test run:
+
+| Metric | Result |
+|---|---:|
+| Packet records processed | 59 |
+| ACCEPT matches | 9 |
+| REJECT matches | 2 |
+| PENDING_VERDICT records | 48 |
+| Firewall verdict records parsed | 16 |
+
+These results demonstrate successful matching for some observed packets. They do not demonstrate complete packet-to-firewall-verdict coverage.
+
+### Known Limitations
+
+- Firewall logging currently observes selected incoming and outgoing traffic on the laboratory interface. It does not provide complete visibility into all forwarded traffic or every firewall decision.
+- The ACCEPT observation rules record traffic reaching their observation chains; they are not a universal record of every possible firewall verdict.
+- The correlation script uses an exact directional flow match and a five-second timestamp window. Packets without a matching firewall record remain `PENDING_VERDICT`.
+- The parser and correlation scripts are currently run manually rather than through a continuous event-driven pipeline.
+- Packet-level verdict correlation has not been validated for every protocol, direction or traffic path.
+- The aggregated flow records do not yet receive individual firewall verdicts.
+- The latest correlation counts are laboratory test observations, not production performance benchmarks.
+
+### Future Improvements
+
+- Add complete and carefully validated firewall verdict coverage for INPUT, OUTPUT and FORWARD traffic.
+- Improve correlation using packet identifiers or connection tracking where available.
+- Automate log ingestion and verdict correlation.
+- Add automated tests for parser accuracy, correlation edge cases and firewall rule behaviour.
+- Integrate firewall verdicts with aggregated flow records.
+- Validate the complete pipeline in an isolated AWS test VPC.
