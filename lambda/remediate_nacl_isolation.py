@@ -25,7 +25,13 @@ from botocore.exceptions import ClientError
 # 1. CONFIGURATION
 # ---------------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+MODULE_DIR = Path(__file__).resolve().parent
+
+BASE_DIR = (
+    MODULE_DIR
+    if (MODULE_DIR / "policies").is_dir()
+    else MODULE_DIR.parent
+)
 
 POLICY_FILE = BASE_DIR / "policies" / "remediation_policy.json"
 PROTECTED_IPS_FILE = BASE_DIR / "policies" / "protected_ips.json"
@@ -33,7 +39,7 @@ PROTECTED_IPS_FILE = BASE_DIR / "policies" / "protected_ips.json"
 DEFAULT_REGION = os.getenv("AWS_REGION", "us-east-1")
 DEFAULT_NACL_ID = os.getenv(
     "NETWORK_ACL_ID",
-    "acl-d636745fd2155230f"
+    "acl-d5a2494605d25b89a"
 )
 
 DEFAULT_ENDPOINT = os.getenv(
@@ -188,7 +194,7 @@ def create_ec2_client():
 # ---------------------------------------------------------
 
 def find_available_rule_number(
-            ec2_client,
+    ec2_client,
     nacl_id,
     policy,
     egress=False
@@ -226,7 +232,7 @@ def find_available_rule_number(
     limits = policy.get("containment_limits", {})
 
     minimum = int(limits.get("minimum_nacl_rule_number", 100))
-    maximum = int(limits.get("maximum_nacl_rule_number", 200))
+    maximum = int(limits.get("maximum_nacl_rule_number", 199))
 
     for rule_number in range(minimum, maximum + 1):
 
@@ -243,7 +249,7 @@ def find_available_rule_number(
 # ---------------------------------------------------------
 
 def create_deny_rule(
-            ec2_client,
+    ec2_client,
     nacl_id,
     malicious_ip,
     policy,
@@ -303,7 +309,7 @@ def create_deny_rule(
 
     associations = nacl.get("Associations", [])
 
-    expected_subnet_id = "subnet-00756e574718220ef"
+    expected_subnet_id = "subnet-4b48386b3552eec56"
 
     if not any(
         association.get("SubnetId") == expected_subnet_id
@@ -315,7 +321,7 @@ def create_deny_rule(
 
     entries = nacl.get("Entries", [])
 
-    # Reject an existing exact-IP rule in the requested direction.
+    # Reject an existing exact-IP DENY rule in the requested direction.
     for entry in entries:
 
         if malicious_ip.version == 4:
@@ -329,13 +335,19 @@ def create_deny_rule(
                 == cidr_parameter.get("Ipv6CidrBlock")
             )
 
-        if same_ip and entry.get("Egress") is egress:
+        is_deny_rule = entry.get("RuleAction") == "deny"
+
+        if (
+            same_ip
+            and entry.get("Egress") is egress
+            and is_deny_rule
+        ):
             raise ValueError(
-                f"A {direction} rule already exists for this IP address."
+                f"A {direction} DENY rule already exists for this IP address."
             )
 
     rule_number = find_available_rule_number(
-            ec2_client,
+        ec2_client,
         nacl_id,
         policy,
         egress=egress
@@ -384,6 +396,17 @@ def lambda_handler(event, context=None):
     try:
 
         policy, protected_ips = load_security_configuration()
+
+        # Support both direct Lambda events and EventBridge envelopes.
+        if isinstance(event, dict) and "detail" in event:
+            if (
+                event.get("source") != "cloud-network-nids.suricata"
+                or event.get("detail-type") != "Suricata High Severity Alert"
+                or not isinstance(event.get("detail"), dict)
+            ):
+                raise ValueError("Unrecognized or invalid EventBridge event.")
+
+            event = event["detail"]
 
         target_ip, direction, severity = check_alert_eligibility(
     event,

@@ -28,13 +28,12 @@ The primary objectives were to:
 
 Architecture and Workflow
 
-The project uses two virtual machines for network traffic generation and monitoring, with LocalStack providing an AWS-compatible API environment for remediation testing.
+The project uses two virtual machines for controlled network traffic generation and monitoring. LocalStack provides an AWS-compatible environment for testing event routing and NACL remediation operations.
 
 High-level workflow
 
           Kali Linux VM
        Traffic Generation
-                |
                 |
                 v
        Ubuntu Linux VM
@@ -52,15 +51,25 @@ High-level workflow
        Security Validation
                 |
                 v
-      Controlled Lambda Remediation 
-	       Test
+      Suricata Alert Publisher
+                |
+                v
+          Amazon EventBridge
+          (LocalStack)
+                |
+                v
+       Lambda Remediation
+       (EventBridge Trigger)
+                |
+                v
+        Safety Policy Checks
                 |
                 v
        LocalStack EC2 API
                 |
                 v
-        Network DENY Rule
-    (when explicitly invoked)
+       Dedicated Test NACL
+    (only when explicitly enabled)
                 |
                 v
        Independent Verification
@@ -72,14 +81,17 @@ Kali Linux| Controlled network scanning and traffic generation
 Ubuntu Linux| Network monitoring and security processing
 Suricata| Network intrusion detection and flow logging
 EVE JSON| Stores structured detection and flow events
-Python parser| Extracts and classifies security alerts
-Flow-volume detector| Identifies unusually large outbound TCP transfers
-AWS Lambda-compatible function| Validates alerts and performs controlled remediation
-Boto3| Communicates with AWS-compatible EC2 APIs
+Python alert parser| Extracts and classifies security alerts
+Suricata alert publisher| Selects eligible severity-1 alerts and publishes EventBridge events
+Amazon EventBridge (LocalStack)| Routes matching high-severity alerts to the Lambda function
+AWS Lambda-compatible function| Validates alerts, applies safety checks and supports controlled NACL remediation
+Boto3| Communicates with AWS-compatible EC2 and EventBridge APIs
 LocalStack| Simulates selected AWS services locally
 Network ACL| Represents the subnet-level traffic filtering policy
 
-Deployment distinction: Suricata runs natively on the Ubuntu virtual machine as a system service. LocalStack runs in Docker using Docker Compose.
+Deployment distinction: Suricata runs natively on the Ubuntu virtual machine as a system service. LocalStack runs in Docker using Docker Compose. The EventBridge-to-Lambda invocation was tested locally; this does not establish production AWS deployment or packet-level enforcement.
+
+Containment safety: Automatic containment remains disabled. The tested pipeline can route eligible alerts to Lambda, but the handler returns DRY_RUN while automatic containment is disabled. NACL changes require the explicitly enabled remediation path.
 
 Technologies Used
 
@@ -284,10 +296,25 @@ Project Structure
 
 cloud-network-nids-remediation/
 │
+├── .github/
+│   └── workflows/
+│       └── python-tests.yml
+│
+├── deployment/
+│   ├── iam/
+│   │   ├── lambda-execution-policy.json
+│   │   └── lambda-trust-policy.json
+│   ├── lambda-package/
+│   │   └── remediate_nacl_isolation.py
+│   └── remediate-nacl-isolation-eventbridge.zip
+│
 ├── docs/
 │   ├── high-volume-outbound-test.md
 │   ├── outbound-remediation-test.md
 │   └── remediation-latency-test.md
+│
+├── flow_logger/
+│   └── flow_logger.py
 │
 ├── lambda/
 │   └── remediate_nacl_isolation.py
@@ -300,15 +327,37 @@ cloud-network-nids-remediation/
 │   ├── protected_ips.json
 │   └── remediation_policy.json
 │
+├── scripts/
+│   ├── publish_suricata_alerts.py
+│   ├── parse_firewall_verdicts.py
+│   └── correlate_firewall_verdicts.py
+│
+├── suricata/
+│   └── local.rules
+│
+├── terraform/
+│   ├── modules/
+│   │   ├── network/
+│   │   └── nacl/
+│   ├── main.tf
+│   ├── providers.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── versions.tf
+│
 ├── tests/
 │   ├── synthetic_external_flow.json
-│   └── test_parser_lambda_integration.py
+│   ├── test_parser_lambda_integration.py
+│   ├── test_parser_lambda_integration_enhanced.py
+│   ├── test_parser_lambda_integration_run.py
+│   ├── test_remediation_unit.py
+│   └── test_suricata_publisher.py
 │
 ├── docker-compose.yml
 ├── .gitignore
 └── README.md
 
-Runtime logs, local backups and generated test data are excluded from the published repository where appropriate.
+Runtime logs, Terraform state, local backups, environment-specific configuration and generated test data are excluded from the published repository where appropriate.
 
 Installation and Laboratory Setup
 
@@ -413,7 +462,7 @@ This project intentionally distinguishes laboratory validation from production c
 
 2. LocalStack simulation: LocalStack validates AWS-compatible API operations. Successful NACL API calls do not prove real AWS packet filtering.
 
-3. Automatic event-driven integration: The parser and Lambda-compatible handler were tested in a controlled integration workflow. A fully deployed event-driven AWS pipeline was not demonstrated.
+3. Event-driven integration: The Suricata alert publisher, LocalStack EventBridge rule and Lambda target were integrated and tested locally. EventBridge accepted qualifying alerts and invoked the Lambda function. This validates the local event-routing workflow, not a production AWS deployment.
 
 4. Automatic containment: Automatic containment remains disabled. No uncontrolled live remediation was performed.
 
@@ -431,10 +480,10 @@ Potential improvements include:
 
 - Deploying the architecture in a real AWS test VPC.
 - Integrating actual AWS VPC Flow Logs.
-- Implementing a fully event-driven alert-to-Lambda workflow.
+- Deploying and validating the event-driven pipeline in a real AWS test environment.
 - Improving flow aggregation and cumulative byte-count handling.
 - Making HOME_NET and NACL configuration environment-driven.
-- Adding automated unit and regression tests.
+- Expanding automated unit and regression test coverage.
 - Integrating CloudWatch monitoring and alerting.
 - Measuring end-to-end detection-to-remediation latency.
 - Validating packet-level NACL enforcement in an isolated AWS test environment.

@@ -21,3 +21,17 @@ logs/
 # Operating system files
 .DS_Store
 *.backup
+
+# Terraform local files and sensitive state
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform-state-before-repair.json
+terraform/tfplan*
+
+# Local recovery copies
+*.backup-*
+*.bin
+
+# Local Terraform configuration
+terraform/terraform.tfvars
