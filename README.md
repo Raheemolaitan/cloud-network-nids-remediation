@@ -91,7 +91,7 @@ Network ACL| Represents the subnet-level traffic filtering policy
 
 Deployment distinction: Suricata runs natively on the Ubuntu virtual machine as a system service. LocalStack runs in Docker using Docker Compose. The EventBridge-to-Lambda invocation was tested locally; this does not establish production AWS deployment or packet-level enforcement.
 
-Containment safety: Automatic containment remains disabled. The tested pipeline can route eligible alerts to Lambda, but the handler returns DRY_RUN while automatic containment is disabled. NACL changes require the explicitly enabled remediation path.
+Containment safety: Automatic containment is disabled by default. It was explicitly enabled for controlled LocalStack validation, where the EventBridge-to-Lambda path successfully created DENY rules on the dedicated test NACL. This was a laboratory test, not live AWS remediation.
 
 Technologies Used
 
@@ -211,9 +211,9 @@ Its responsibilities include:
 - Selecting an available rule number.
 - Creating an IPv4 or IPv6 DENY rule where eligible.
 
-Automatic containment is disabled by default.
+Automatic containment is disabled by default. It was explicitly enabled for the final controlled LocalStack remediation test, which successfully created and verified DENY rules on the dedicated test NACL.
 
-Controlled tests explicitly invoked the remediation function to validate its behaviour.
+Controlled tests also validated the earlier DRY_RUN behaviour.
 
 Security Safeguards
 
@@ -464,7 +464,7 @@ This project intentionally distinguishes laboratory validation from production c
 
 3. Event-driven integration: The Suricata alert publisher, LocalStack EventBridge rule and Lambda target were integrated and tested locally. EventBridge accepted qualifying alerts and invoked the Lambda function. This validates the local event-routing workflow, not a production AWS deployment.
 
-4. Automatic containment: Automatic containment remains disabled. No uncontrolled live remediation was performed.
+4. Automatic containment: The default policy remains disabled. It was explicitly enabled for controlled LocalStack testing, which successfully created and verified outbound DENY rules on the dedicated test NACL. No live AWS production remediation was performed.
 
 5. Flow deduplication: The flow-volume detector uses flow IDs to avoid duplicate processing. Its current first-record deduplication approach may ignore later records containing higher cumulative byte counts.
 
@@ -569,3 +569,58 @@ These results demonstrate successful matching for some observed packets. They do
 - Add automated tests for parser accuracy, correlation edge cases and firewall rule behaviour.
 - Integrate firewall verdicts with aggregated flow records.
 - Validate the complete pipeline in an isolated AWS test VPC.
+
+## Final Automated Containment Validation
+
+Automatic containment was disabled by default but explicitly enabled for controlled LocalStack testing.
+
+The final test used:
+- EventBridge rule: `suricata-high-severity-remediation`
+- Lambda function: `remediate-nacl-isolation`
+- Dedicated test NACL: `acl-72df68091d459c0d1`
+- Test subnet: `subnet-f4aed758b33e3cf34`
+- Test VPC: `vpc-c501867dea99c7dbb`
+
+The dedicated NACL was verified as non-default and associated with the intended test subnet. The default NACL was not modified.
+
+### Remediation validation
+
+A direct Lambda invocation returned `CONTAINMENT_APPLIED` with `nacl_modified: true`. The EventBridge test returned `FailedEntryCount: 0`. Independent NACL inspection confirmed that the second DENY rule was created.
+
+| Rule | Direction | Action | Destination |
+|---|---|---|---|
+| 100 | Outbound | DENY | `198.51.100.77/32` |
+| 101 | Outbound | DENY | `198.51.100.78/32` |
+
+The original ALLOW rules at rule number 200 remained in place. Both addresses are TEST-NET-2 documentation addresses, not real external threat indicators.
+
+### Remediation safeguards
+
+The tested remediation function includes:
+- Approved test-NACL restriction.
+- Default NACL protection.
+- Expected subnet association verification.
+- IPv4 and IPv6 address validation.
+- Protected-IP checks.
+- Duplicate DENY-rule prevention.
+- Maximum of one block rule per invocation.
+- Rule-number selection within 100–199.
+- Severity threshold of 1.
+
+### Automated test results
+
+The automated test suite completed successfully: **30 tests passed**.
+
+Run the tests from the project root:
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q
+```
+
+### Environment-specific Lambda configuration
+
+The Lambda container initially could not reach LocalStack through `localhost:4566`. The configuration was corrected to use the LocalStack container Docker-network address, `http://172.18.0.2:4566`, after which remediation testing succeeded. This address is specific to the tested Docker network and must not be copied blindly into another environment.
+
+### Scope and limitations
+
+These results demonstrate controlled, event-driven NACL API remediation in LocalStack. They do not demonstrate deployment in a live AWS account, production AWS EventBridge operation, or packet-level enforcement in a real AWS VPC. Native AWS VPC Flow Log ingestion remains a future enhancement.
