@@ -1,0 +1,12 @@
+{
+  "source": "cloud-network-nids.suricata",
+  "detail-type": "Suricata High Severity Alert",
+  "detail": {
+    "source_ip": "10.106.155.63",
+    "destination_ip": "198.51.100.77",
+    "direction": "outbound",
+    "severity": 1,
+    "signature_id": 1000005,
+    "signature": "HIGH_VOLUME_OUTBOUND_TRANSFER"
+  }
+}

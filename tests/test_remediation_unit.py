@@ -123,7 +123,7 @@ class TestNACLContainmentSafety(unittest.TestCase):
             "IsDefault": False,
             "Associations": [
                 {
-                    "SubnetId": "subnet-4b48386b3552eec56"
+                    "SubnetId": "subnet-f4aed758b33e3cf34"
                 }
             ],
             "Entries": [
@@ -276,7 +276,7 @@ class TestAdditionalContainmentCases(unittest.TestCase):
         nacl = {
             "IsDefault": False,
             "Associations": [
-                {"SubnetId": "subnet-4b48386b3552eec56"}
+                {"SubnetId": "subnet-f4aed758b33e3cf34"}
             ],
             "Entries": [
                 {
@@ -305,7 +305,7 @@ class TestAdditionalContainmentCases(unittest.TestCase):
         nacl = {
             "IsDefault": False,
             "Associations": [
-                {"SubnetId": "subnet-4b48386b3552eec56"}
+                {"SubnetId": "subnet-f4aed758b33e3cf34"}
             ],
             "Entries": []
         }

@@ -1,7 +1,7 @@
 {
   "policy_name": "Cloud Network Threat Containment Policy",
   "version": "1.1",
-  "automatic_containment_enabled": false,
+  "automatic_containment_enabled": true,
   "containment_severity_threshold": 1,
   "severity_actions": {
     "1": "eligible_for_containment",

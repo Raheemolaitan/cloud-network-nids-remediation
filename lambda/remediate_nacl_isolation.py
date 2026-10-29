@@ -39,7 +39,7 @@ PROTECTED_IPS_FILE = BASE_DIR / "policies" / "protected_ips.json"
 DEFAULT_REGION = os.getenv("AWS_REGION", "us-east-1")
 DEFAULT_NACL_ID = os.getenv(
     "NETWORK_ACL_ID",
-    "acl-d5a2494605d25b89a"
+    "acl-72df68091d459c0d1"
 )
 
 DEFAULT_ENDPOINT = os.getenv(
@@ -309,7 +309,7 @@ def create_deny_rule(
 
     associations = nacl.get("Associations", [])
 
-    expected_subnet_id = "subnet-4b48386b3552eec56"
+    expected_subnet_id = "subnet-f4aed758b33e3cf34"
 
     if not any(
         association.get("SubnetId") == expected_subnet_id
